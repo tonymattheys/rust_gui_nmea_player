@@ -21,6 +21,7 @@ fn main() -> Result<(), eframe::Error> {
     let mut longitude = "-123.4567".to_string();
     let mut zoom = 10;
     let mut selected = 1; // more likely not to be the loopback address
+	let mut picked_path = "".to_string();
 
     eframe::run_simple_native("NMEA Player", options, move |ctx, _frame| {
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -28,6 +29,16 @@ fn main() -> Result<(), eframe::Error> {
    	        ui.heading(format!("Lat: '{latitude}', Lon: '{longitude}', Zoom : {zoom}"));
             egui_extras::install_image_loaders(ctx);
 
+			// File selection stuff. 
+			if ui.button("Open file…").clicked() {
+                if let Some(path) = rfd::FileDialog::new().pick_file() {
+                    picked_path = path.display().to_string();
+                }
+            }
+            ui.monospace(picked_path.to_owned());
+
+			// Diaplay Latitude and longitude text boxes which allow direct 
+			// editing of lat/long
             ui.horizontal(|ui| {
                 let lat_label = ui.label("Latitude: ");
                 ui.text_edit_singleline(&mut latitude)
@@ -61,9 +72,6 @@ fn main() -> Result<(), eframe::Error> {
             });
            	ui.separator();
             
-//            if ui.button("Click to fetch map tiles").clicked() {
-//            }
-
 			// Find the top left corner of the window area where the map tiles will
 			// be drawn. We need this to place the location marker later on            
             let topleft = ui.cursor(); 
@@ -106,7 +114,6 @@ fn main() -> Result<(), eframe::Error> {
 			// egui::include_image! will statically link the image bytes into the executable            
             let marker = egui::Image::new(egui::include_image!("gps_102930.png"));
 			ui.put(location, marker);
-          
         });
     })
 }
