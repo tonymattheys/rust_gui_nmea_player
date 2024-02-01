@@ -18,3 +18,4 @@ egui_extras = { version = "0.25.0", features = ["all_loaders"] }
 image = { version = "0.24.7", features = ["jpeg", "png"] }
 log = "0.4.20"
 rfd = "0.11"
+rand = "0.8.5"
