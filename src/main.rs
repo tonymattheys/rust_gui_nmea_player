@@ -1,99 +1,94 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use eframe::egui;
 use pnet::datalink::interfaces;
-use egui::{Vec2, Rect, Pos2};
-use std::{f64::consts::PI, thread::{self}, sync::mpsc::{self, Receiver, Sender}, path::PathBuf};
+use egui::{Vec2, Rect, Pos2, RichText};
+use std::{f64::consts::PI, path::PathBuf};
+use std::sync::{Arc, Mutex};
 
 mod udp_broadcaster_thread;
-use udp_broadcaster_thread::BroadcasterParameters;
-
-
-#[allow(unused_imports)]	// Debug may or may not be used depending on what I'm
-use log::debug;				// doing so an unused import for it is just fine
-
 
 fn main() -> Result<(), eframe::Error> {
-    env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
-
+	// Set up shared memory structure to communicate with the broadcaster thread.
+    let shared_memory = Arc::new(Mutex::new(udp_broadcaster_thread::Shared {
+    	pth: "".to_string(),
+    	ifc: "".to_string(),
+    	udp: 0,
+		lat: 0.0,
+		lon: 0.0,
+		cog: 0.0,
+		sog: 0.0,
+    }));
+	// Set up a few options for the GUI
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([800.0, 920.0]),
         ..Default::default() // make everything default except what I overrode above
     };
 
+	// Get list of "interesting" network interfaces for ComboBox later
+    let mut alternatives: Vec<String> = Vec::new();
+    for i in interfaces() {
+        for n in i.ips {
+            if n.is_ipv4() {
+            	alternatives.push(format!("{} ({})", i.name.to_owned(), n.ip()));
+            }
+        }
+    }
     // Our application state:
-    let mut latitude = "49.1234".to_string();
-    let mut longitude = "-123.4567".to_string();
     let mut zoom = 10;
     let mut selected = 1; // more likely not to be the loopback address
-	let mut udp_port = "10110".to_string();
-	let mut picked_path = "".to_string();
-	let mut broadcasting = false;
+	let mut udp_port = shared_memory.lock().unwrap().udp.to_string();
+	let mut broadcasting: bool = false;
 
     eframe::run_simple_native("NMEA Player", options, move |ctx, _frame| {
         egui::CentralPanel::default().show(ctx, |ui| {
-		    let (tx, rx): (Sender<BroadcasterParameters>, Receiver<BroadcasterParameters>) = mpsc::channel();
-			
+			// Tell the GUI to repaint the screen every frame. This is a bit heavy
+			// but it's the easiest way right now in egui to repaint the screen
+			// and keep the animation of the position running smoothly without 
+			// needing the user to move the mouse or provide someother kind of
+			// input to trigger a screen repaint.
+			ui.ctx().request_repaint();
+
 	        ui.spacing_mut().item_spacing = Vec2 { x: 10.0, y: 10.0 };
-   	        ui.heading(format!("Lat: '{latitude}', Lon: '{longitude}', Zoom : {zoom}"));
+
+			// Grab lat/lon from the shared memory structure and plonk it into
+			// the heading of the screen. Note that we can't do this by grabbing
+			// the two values directly from the shared memory in the same statement 
+			// because it causes a deadlock condition that hangs the application
+	        let lat = shared_memory.lock().unwrap().lat;
+	        let lon = shared_memory.lock().unwrap().lon;
+   	        ui.heading(format!("Lat: '{:.4}', Lon: '{:.4}', Zoom : {}", lat, lon, zoom));
+
             egui_extras::install_image_loaders(ctx);
-			// Get list of "interesting" network interfaces for ComboBox later
-            let mut alternatives: Vec<String> = Vec::new();
-            for i in interfaces() {
-                for n in i.ips {
-                    if n.is_ipv4() {
-                    	alternatives.push(format!("{} ({})", i.name.to_owned(), n.ip()));
-                    }
-                }
-            }
-			// File selection stuff
-			if ui.button("Open file…").clicked() {
-				// We will only open a file if we are not already broadcasting.
-				if !broadcasting {
-	                let path = match rfd::FileDialog::new().pick_file() {
-	                	Some(p) => {
-	                		p
-	                	}
-	                	None => {
-	                		PathBuf::new()
-	                	}
-	                };
-	           		picked_path = path.display().to_string();
-	           		let bp = BroadcasterParameters {
-	           			lat: latitude.parse::<f64>().unwrap_or(0.0),
-	           			lon: longitude.parse::<f64>().unwrap_or(0.0),
-	           			ifc: alternatives[selected].to_owned(),
-	           			udp: udp_port.parse::<u64>().unwrap_or(10110),
-	           			line: "".to_owned(),
-	           		};
-				    let _child = thread::spawn(move || {
-				        udp_broadcaster_thread::send_file_lines(path.display().to_string(), bp, tx);
-				    });
-				    broadcasting = true;
-			    }
+
+			// File selection stuff - right now I only allow a single thread to
+			// be running, gated by the "broadcasting" flag. Once a file has been
+			// selected, the only way to open a new one is to stop and restart
+			// the progam 
+			// (Windows Ctrl-Alt-Delete for every miniscule change, anyone?)
+			if ui.button("Open file…").clicked() && !broadcasting {
+                let path = match rfd::FileDialog::new().pick_file() {
+                	Some(p) => p,
+                	None => PathBuf::new(),
+                };
+           		shared_memory.lock().unwrap().pth = path.display().to_string();
+       		    let shared = shared_memory.clone();
+			    let _  = std::thread::spawn(move || {
+			        udp_broadcaster_thread::read_file_lines(shared);
+			    });
+			    broadcasting = true;
 	        }
-            ui.monospace(picked_path.to_owned());
+            ui.monospace(shared_memory.lock().unwrap().pth.to_owned());
             
-			if broadcasting { // the broadcasting thread is already running so try get data
-	             match rx.try_recv() {
-		            Ok(f) => {
-		            	println!("received {:?}", f);
-		            	latitude = format!("{:.4}", f.lat);
-		            	longitude = format!("{:.4}", f.lon);
-		            },
-		            Err(_) => {
-		            	println!("Error trying to receive...")
-		            },
-    		    };
-			}
 			// Display Latitude and longitude text boxes which allow direct 
 			// editing of lat/long values with realtime map update as a bonus
+            let mut lat_string = format!("{:.4}", shared_memory.lock().unwrap().lat);
+            let mut lon_string = format!("{:.4}", shared_memory.lock().unwrap().lon);
             ui.horizontal(|ui| {
                 let lat_label = ui.label("Latitude: ");
-                ui.text_edit_singleline(&mut latitude).labelled_by(lat_label.id);
+                ui.text_edit_singleline(&mut lat_string).labelled_by(lat_label.id);
                 ui.separator();
                 let lon_label = ui.label("Longitude: ");
-                ui.text_edit_singleline(&mut longitude)
-                    .labelled_by(lon_label.id);
+                ui.text_edit_singleline(&mut lon_string).labelled_by(lon_label.id);
             });
 
 			// ComboBox to select network interface, UDP Port text edit area 
@@ -115,6 +110,11 @@ fn main() -> Result<(), eframe::Error> {
             	// Slider to set zoom value (0-19)
 	            ui.add(egui::Slider::new(&mut zoom, 0..=19).show_value(false).text("Zoom Level").step_by(1.0).max_decimals(0));
             });
+            ui.horizontal(|ui| {
+            	ui.label(RichText::new(format!("COG = {:.0} °T ", shared_memory.lock().unwrap().cog)).size(16.0).monospace().strong());
+	           	ui.separator();
+            	ui.label(RichText::new(format!("  SOG = {:.1} kts", shared_memory.lock().unwrap().sog)).size(16.0).monospace().strong());
+			});
            	ui.separator();
             
 			// Find the top left corner of the window area where the map tiles will
@@ -122,8 +122,8 @@ fn main() -> Result<(), eframe::Error> {
             let topleft = ui.cursor(); 
 			// Now calculate which tiles we need from the tile server based on lat/lon            
             let n = f64::powf(2.0, zoom as f64);
-            let lat: f64 = latitude.parse().unwrap_or(0.0);
-            let lon: f64 = longitude.parse().unwrap_or(0.0);
+            let lat: f64 = shared_memory.lock().unwrap().lat;
+            let lon: f64 = shared_memory.lock().unwrap().lon;
             let lat_rad: f64 = lat * PI / 180.0;
             let xtile = (n * ((lon + 180.0) / 360.0)).floor() as u64;
             let ytile = (n * (1.0 - ((lat_rad.tan() + (1.0 / lat_rad.cos())).ln() / PI)) / 2.0).floor() as u64;
