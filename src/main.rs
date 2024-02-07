@@ -6,15 +6,18 @@ use std::{f64::consts::PI, path::PathBuf};
 use std::sync::{Arc, Mutex};
 
 mod udp_broadcaster_thread;
+mod where_am_i;
 
 fn main() -> Result<(), eframe::Error> {
 	// Set up shared memory structure to communicate with the broadcaster thread.
+	// We set some sane default values here so that the values shown in the GUI
+	// make sense right out the gate.
     let shared_memory = Arc::new(Mutex::new(udp_broadcaster_thread::Shared {
     	pth: "".to_string(),
     	ifc: "".to_string(),
-    	udp: 0,
-		lat: 0.0,
-		lon: 0.0,
+    	udp: 10110,
+		lat: 49.1234,
+		lon: -123.4567,
 		cog: 0.0,
 		sog: 0.0,
     }));
@@ -29,10 +32,11 @@ fn main() -> Result<(), eframe::Error> {
     for i in interfaces() {
         for n in i.ips {
             if n.is_ipv4() {
-            	alternatives.push(format!("{} ({})", i.name.to_owned(), n.ip()));
+            	alternatives.push(format!("{}", i.name.to_owned()));
             }
         }
     }
+
     // Our application state:
     let mut zoom = 10;
     let mut selected = 1; // more likely not to be the loopback address
@@ -50,35 +54,45 @@ fn main() -> Result<(), eframe::Error> {
 
 	        ui.spacing_mut().item_spacing = Vec2 { x: 10.0, y: 10.0 };
 
-			// Grab lat/lon from the shared memory structure and plonk it into
-			// the heading of the screen. Note that we can't do this by grabbing
-			// the two values directly from the shared memory in the same statement 
+			// Grab lat/lon from the shared memory structure and use them to
+			// call "where_am_i::rightnow" to get the english place name where
+			// we are right now. Note that we can't do this by grabbing the two
+			// values directly from the shared memory in the same statement 
 			// because it causes a deadlock condition that hangs the application
 	        let lat = shared_memory.lock().unwrap().lat;
 	        let lon = shared_memory.lock().unwrap().lon;
-   	        ui.heading(format!("Lat: '{:.4}', Lon: '{:.4}', Zoom : {}", lat, lon, zoom));
+   	        ui.heading(where_am_i::rightnow(lat, lon));
 
             egui_extras::install_image_loaders(ctx);
 
-			// File selection stuff - right now I only allow a single thread to
-			// be running, gated by the "broadcasting" flag. Once a file has been
-			// selected, the only way to open a new one is to stop and restart
-			// the progam 
-			// (Windows Ctrl-Alt-Delete for every miniscule change, anyone?)
-			if ui.button("Open file…").clicked() && !broadcasting {
-                let path = match rfd::FileDialog::new().pick_file() {
-                	Some(p) => p,
-                	None => PathBuf::new(),
-                };
-           		shared_memory.lock().unwrap().pth = path.display().to_string();
-       		    let shared = shared_memory.clone();
-			    let _  = std::thread::spawn(move || {
-			        udp_broadcaster_thread::read_file_lines(shared);
-			    });
-			    broadcasting = true;
-	        }
-            ui.monospace(shared_memory.lock().unwrap().pth.to_owned());
-            
+            ui.horizontal(|ui| {
+				// File selection stuff - right now I only allow a single thread to
+				// be running, gated by the "broadcasting" flag. Once a file has been
+				// selected, the only way to open a new one is to stop and restart
+				// the progam 
+				// (Windows Ctrl-Alt-Delete for every miniscule change, anyone?)
+				if ui.button("Open file…").clicked() && !broadcasting {
+	                let path = match rfd::FileDialog::new().pick_file() {
+	                	Some(p) => p,
+	                	None => PathBuf::new(),
+	                };
+	           		shared_memory.lock().unwrap().pth = path.display().to_string();
+	       		    let shared = shared_memory.clone();
+				    let _  = std::thread::spawn(move || {
+				        udp_broadcaster_thread::read_file_lines(shared);
+				    });
+				    broadcasting = true;
+		        }
+		        ui.separator();
+				// Split long file names so they fit on the screen better
+				let mut splitpoint: usize = 0;
+				let mut filename = shared_memory.lock().unwrap().pth.to_string().to_owned();
+				if filename.len() > 80 {
+			    	splitpoint = filename.len() - 80 as usize;
+		        }
+	            ui.monospace(filename.split_off(splitpoint));
+            });
+			/*
 			// Display Latitude and longitude text boxes which allow direct 
 			// editing of lat/long values with realtime map update as a bonus
             let mut lat_string = format!("{:.4}", shared_memory.lock().unwrap().lat);
@@ -90,7 +104,8 @@ fn main() -> Result<(), eframe::Error> {
                 let lon_label = ui.label("Longitude: ");
                 ui.text_edit_singleline(&mut lon_string).labelled_by(lon_label.id);
             });
-
+			*/
+			
 			// ComboBox to select network interface, UDP Port text edit area 
 			// and slider for zoom level
             ui.horizontal(|ui| {
@@ -102,14 +117,18 @@ fn main() -> Result<(), eframe::Error> {
 	                alternatives.len(),
 	                |i| alternatives[i].to_owned(),
 	            );
+	            shared_memory.lock().unwrap().ifc = alternatives[selected].to_owned();
 	            ui.style_mut().spacing.text_edit_width = 100.0;
                 let udp_label = ui.label("UDP Port");
 	            ui.text_edit_singleline(&mut udp_port)
                     .labelled_by(udp_label.id);
-            	ui.style_mut().spacing.slider_width = 200.0;
+	            shared_memory.lock().unwrap().udp = udp_port.parse::<u16>().unwrap_or(10110 as u16);
+    	    	ui.style_mut().spacing.slider_width = 200.0;
             	// Slider to set zoom value (0-19)
 	            ui.add(egui::Slider::new(&mut zoom, 0..=19).show_value(false).text("Zoom Level").step_by(1.0).max_decimals(0));
             });
+
+    		// COG and SOG from NMEA sentences
             ui.horizontal(|ui| {
             	ui.label(RichText::new(format!("COG = {:.0} °T ", shared_memory.lock().unwrap().cog)).size(16.0).monospace().strong());
 	           	ui.separator();
@@ -153,11 +172,11 @@ fn main() -> Result<(), eframe::Error> {
 			let bottomright_lon = (xtile + 2) as f64 / n * 360.0 - 180.0;
 			let x = (topleft.left() as f64) + 768.0 * ((lon - topleft_lon)/(bottomright_lon - topleft_lon)).abs();
 			let y = (topleft.top() as f64) + 768.0 * ((lat - topleft_lat)/(bottomright_lat - topleft_lat)).abs();
+			// egui::include_image! will statically link the image bytes into the executable            
+		    let marker = egui::Image::new(egui::include_image!("gps_102930.png"));
 			// Place the marker so that the pointer of the 64x64 marker image is at the lat/long specified
 			// The pointer is at x=32 and about y=56 (by experiment) which is close enough for this purpose
 			let location: Rect = Rect{min: Pos2 { x: x as f32 - 32.0, y: y as f32 - 56.0 }, max: Pos2 { x: x as f32 + 32.0, y: y as f32 + 8.0 }};
-			// egui::include_image! will statically link the image bytes into the executable            
-            let marker = egui::Image::new(egui::include_image!("gps_102930.png"));
 			ui.put(location, marker);
         });
     })
