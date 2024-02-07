@@ -2,6 +2,10 @@
 
 Rust program which will play the contents of a NMEA text file over the network.
 
+I am working on an enhancement that will play the NMEA sentences at more or less
+"real" speeds. This will make the whole thing far more useful for navigation
+simulation and practice as time/distance calculations will be accurate.
+
 # How to run
 - cd wherever_you_downloaded_the_program
 - cargo run [--release]
