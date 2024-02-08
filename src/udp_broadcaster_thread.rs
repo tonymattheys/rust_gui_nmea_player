@@ -149,12 +149,6 @@ pub fn read_file_lines(shared_memory: Arc<Mutex<Shared>>) {
             let o: f64 = FromStr::from_str(&fields[2]).unwrap_or(0.0);
             shared_memory.lock().unwrap().dpt = d + o;
         }
-
-        // Introduce a delay to sort of account for transmission speed
-        // Assumes 38,400 baud because of AIS and answer is in milliseconds
-        let dly: f64 = line.len() as f64 / (38400.0 / 8.0) * 1000.0;
-        sleep(std::time::Duration::from_millis(dly.floor() as u64));
-
         socket
             .send_to(line.as_bytes(), &destination)
             .expect("Error sending on socket.");
