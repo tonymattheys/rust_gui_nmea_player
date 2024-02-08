@@ -1,3 +1,4 @@
+use chrono::{NaiveDate, Utc};
 use std::fs::File;
 use std::io::{self, Read};
 use std::net::{SocketAddr, UdpSocket};
@@ -9,6 +10,7 @@ use pnet::datalink;
 
 #[derive(Debug)]
 pub struct Shared {
+    pub utc: String,
     pub pth: String,
     pub ifc: String,
     pub udp: u16,
@@ -16,6 +18,9 @@ pub struct Shared {
     pub lon: f64,
     pub cog: f64,
     pub sog: f64,
+    pub awa: f64,
+    pub aws: f64,
+    pub dpt: f64,
 }
 
 pub fn read_file_lines(shared_memory: Arc<Mutex<Shared>>) {
@@ -43,6 +48,15 @@ pub fn read_file_lines(shared_memory: Arc<Mutex<Shared>>) {
             )
         })
         .unwrap();
+
+    // Define some variables that can store various dates/times that we need to keep
+    // packet sending in synch (more or less) with real time
+    let mut file_start_time = NaiveDate::from_ymd_opt(1970, 1, 1)
+        .unwrap()
+        .and_hms_opt(0, 0, 0)
+        .unwrap();
+    let mut locl_start_time = Utc::now().naive_utc();
+
     // Grab the broadcast address of the first IP address assigned to the specified interface
     let ip_addr = interface.ips[0].broadcast();
     let destination = SocketAddr::new(ip_addr, shared_memory.lock().unwrap().udp);
@@ -55,6 +69,42 @@ pub fn read_file_lines(shared_memory: Arc<Mutex<Shared>>) {
 
     for line in file_lines.split_terminator("\r\n") {
         let fields: Vec<&str> = line.split(',').collect();
+        // $GPZDA,234626.99,22,02,2021,08,00*6A
+        if fields[0].starts_with("$") && fields[0].len() >= 6 && fields[0][3..6].eq("ZDA") {
+            let y: i32 = FromStr::from_str(fields[4]).unwrap_or(1970);
+            let m: u32 = FromStr::from_str(fields[3]).unwrap_or(1);
+            let d: u32 = FromStr::from_str(fields[2]).unwrap_or(1);
+            let hr: u32 = FromStr::from_str(&fields[1][0..2]).unwrap_or(0);
+            let mn: u32 = FromStr::from_str(&fields[1][2..4]).unwrap_or(0);
+            let se: u32 = FromStr::from_str(&fields[1][4..6]).unwrap_or(0);
+
+            // We put locl_start_time as the default for the unwrap() to help prevent panics
+            let dt = NaiveDate::from_ymd_opt(y, m, d)
+                .unwrap_or(locl_start_time.date())
+                .and_hms_opt(hr, mn, se)
+                .unwrap_or(locl_start_time);
+
+            // Set the UTC date and time in the shared memory for dispplay in the GUI
+            shared_memory.lock().unwrap().utc = dt.format("%Y-%m-%d %H:%M:%S").to_string();
+
+            // If we have not yet initialized the start times, then do it now.
+            if file_start_time
+                == NaiveDate::from_ymd_opt(1970, 1, 1)
+                    .unwrap()
+                    .and_hms_opt(0, 0, 0)
+                    .unwrap()
+            {
+                file_start_time = dt;
+                locl_start_time = Utc::now().naive_utc();
+            }
+            // Resynch the elapsed time clocks by sleeping before reading the next line
+            let sleep_time = (dt - file_start_time) - (Utc::now().naive_utc() - locl_start_time);
+            if sleep_time.num_milliseconds() > 0 {
+                sleep(std::time::Duration::from_millis(
+                    sleep_time.num_milliseconds() as u64,
+                ));
+            }
+        }
         // $GPGGA,020659.21,4937.8509,N,12401.4384,W,2,9,0.83,,M,,M*44
         if fields[0].starts_with("$") && fields[0].len() >= 6 && fields[0][3..6].eq("GGA") {
             // Get latitude from GPS statement
@@ -83,9 +133,25 @@ pub fn read_file_lines(shared_memory: Arc<Mutex<Shared>>) {
             shared_memory.lock().unwrap().cog = FromStr::from_str(&fields[1]).unwrap_or(0.0);
             shared_memory.lock().unwrap().sog = FromStr::from_str(&fields[5]).unwrap_or(0.0);
         }
+        // $WIVWR,31.7,L,0.5,N,0.3,M,0.9,K*73
+        if fields[0].starts_with("$") && fields[0].len() >= 6 && fields[0][3..6].eq("VWR") {
+            let awa: f64 = FromStr::from_str(&fields[1]).unwrap_or(0.0);
+            if fields[2].eq_ignore_ascii_case("R") {
+                shared_memory.lock().unwrap().awa = awa;
+            } else {
+                shared_memory.lock().unwrap().awa = -awa;
+            };
+            shared_memory.lock().unwrap().aws = FromStr::from_str(&fields[3]).unwrap_or(0.0);
+        }
+        // $SDDPT,10.38,0,*6F
+        if fields[0].starts_with("$") && fields[0].len() >= 6 && fields[0][3..6].eq("DPT") {
+            let d: f64 = FromStr::from_str(&fields[1]).unwrap_or(0.0);
+            let o: f64 = FromStr::from_str(&fields[2]).unwrap_or(0.0);
+            shared_memory.lock().unwrap().dpt = d + o;
+        }
 
         // Introduce a delay to sort of account for transmission speed
-        // Assumes 38,400 baud because of AIS
+        // Assumes 38,400 baud because of AIS and answer is in milliseconds
         let dly: f64 = line.len() as f64 / (38400.0 / 8.0) * 1000.0;
         sleep(std::time::Duration::from_millis(dly.floor() as u64));
 

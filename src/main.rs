@@ -13,13 +13,17 @@ fn main() -> Result<(), eframe::Error> {
 	// We set some sane default values here so that the values shown in the GUI
 	// make sense right out the gate.
     let shared_memory = Arc::new(Mutex::new(udp_broadcaster_thread::Shared {
-    	pth: "".to_string(),
+    	utc: "0000-00-00 00:00:00".to_string(),
+    	pth: "No file loaded".to_string(),
     	ifc: "".to_string(),
     	udp: 10110,
 		lat: 49.1234,
 		lon: -123.4567,
 		cog: 0.0,
 		sog: 0.0,
+		awa: 0.0,
+		aws: 0.0,
+		dpt: 0.0,
     }));
 	// Set up a few options for the GUI
     let options = eframe::NativeOptions {
@@ -61,7 +65,7 @@ fn main() -> Result<(), eframe::Error> {
 			// because it causes a deadlock condition that hangs the application
 	        let lat = shared_memory.lock().unwrap().lat;
 	        let lon = shared_memory.lock().unwrap().lon;
-   	        ui.heading(where_am_i::rightnow(lat, lon));
+	        ui.heading(RichText::new(format!("{} UTC - {}", shared_memory.lock().unwrap().utc, where_am_i::rightnow(lat, lon))).strong());
 
             egui_extras::install_image_loaders(ctx);
 
@@ -70,7 +74,7 @@ fn main() -> Result<(), eframe::Error> {
 				// be running, gated by the "broadcasting" flag. Once a file has been
 				// selected, the only way to open a new one is to stop and restart
 				// the progam 
-				// (Windows Ctrl-Alt-Delete for every miniscule change, anyone?)
+				// (Windows Ctrl-Alt-Delete for every little change, anyone?)
 				if ui.button("Open file…").clicked() && !broadcasting {
 	                let path = match rfd::FileDialog::new().pick_file() {
 	                	Some(p) => p,
@@ -128,11 +132,17 @@ fn main() -> Result<(), eframe::Error> {
 	            ui.add(egui::Slider::new(&mut zoom, 0..=19).show_value(false).text("Zoom Level").step_by(1.0).max_decimals(0));
             });
 
-    		// COG and SOG from NMEA sentences
+    		// COG, SOG, AWA, AWS from NMEA sentences
             ui.horizontal(|ui| {
-            	ui.label(RichText::new(format!("COG = {:.0} °T ", shared_memory.lock().unwrap().cog)).size(16.0).monospace().strong());
+            	ui.label(RichText::new(format!("COG = {:3.0} °T ", shared_memory.lock().unwrap().cog)).size(16.0).monospace().strong());
 	           	ui.separator();
-            	ui.label(RichText::new(format!("  SOG = {:.1} kts", shared_memory.lock().unwrap().sog)).size(16.0).monospace().strong());
+            	ui.label(RichText::new(format!(" SOG = {:2.1} kts", shared_memory.lock().unwrap().sog)).size(16.0).monospace().strong());
+	           	ui.separator();
+            	ui.label(RichText::new(format!(" AWA = {:3.0} °", shared_memory.lock().unwrap().awa)).size(16.0).monospace().strong());
+	           	ui.separator();
+            	ui.label(RichText::new(format!(" AWS = {:2.1} kts", shared_memory.lock().unwrap().aws)).size(16.0).monospace().strong());
+	           	ui.separator();
+            	ui.label(RichText::new(format!(" DPT = {:3.1} m", shared_memory.lock().unwrap().dpt)).size(16.0).monospace().strong());
 			});
            	ui.separator();
             
