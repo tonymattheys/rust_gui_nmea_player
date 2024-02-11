@@ -186,8 +186,10 @@ pub fn read_file_lines(shared_memory: Arc<Mutex<Shared>>) {
             }
         };*/
 
+		// Stick \r\n onto the end of the line. NMEA0183 expects this but will 
+		// mostly work even without it (Navionics for example)
         socket
-            .send_to(line.as_bytes(), &destination)
+            .send_to(format!("{}\r\n", line).as_bytes(), &destination)
             .expect("Error sending on socket.");
     }
 }
