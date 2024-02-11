@@ -14,6 +14,7 @@ fn main() -> Result<(), eframe::Error> {
 	// We set Shared::default() values here so that the values shown in the GUI
 	// make sense right out the gate.
     let shared_memory = Arc::new(Mutex::new(Shared::default()));
+	
 	// Set up a few options for the GUI
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([800.0, 920.0]),
@@ -86,20 +87,6 @@ fn main() -> Result<(), eframe::Error> {
 	            ui.monospace(filename.split_off(splitpoint));
             });
 
-			/*
-			// Display Latitude and longitude text boxes which allow direct 
-			// editing of lat/long values with realtime map update as a bonus
-            let mut lat_string = format!("{:.4}", shared_memory.lock().unwrap().lat);
-            let mut lon_string = format!("{:.4}", shared_memory.lock().unwrap().lon);
-            ui.horizontal(|ui| {
-                let lat_label = ui.label("Latitude: ");
-                ui.text_edit_singleline(&mut lat_string).labelled_by(lat_label.id);
-                ui.separator();
-                let lon_label = ui.label("Longitude: ");
-                ui.text_edit_singleline(&mut lon_string).labelled_by(lon_label.id);
-            });
-			*/
-			
 			// ComboBox to select network interface, UDP Port text edit area 
 			// and slider for zoom level
             ui.horizontal(|ui| {

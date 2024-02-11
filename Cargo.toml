@@ -10,14 +10,8 @@ authors = ["Tony Mattheys"]
 pnet = "0.30.0"
 eframe = "0.25.0"
 egui = "0.25.0"
-env_logger = { version = "0.10.1", default-features = false, features = [
-    "auto-color",
-    "humantime",
-] }
 egui_extras = { version = "0.25.0", features = ["all_loaders"] }
 image = { version = "0.24.7", features = ["jpeg", "png"] }
 rfd = "0.11"
 reverse_geocoder = "4.0.0"
 chrono = "0.4.33"
-confy = "0.6.0"
-serde = { version = "1.0.196", features = ["derive"] }

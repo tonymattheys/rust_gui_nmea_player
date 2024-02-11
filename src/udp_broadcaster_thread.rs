@@ -1,6 +1,5 @@
 use chrono::{NaiveDate, Utc};
 use pnet::datalink;
-use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{self, Read};
 use std::net::{SocketAddr, UdpSocket};
@@ -8,7 +7,7 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Debug)]
 pub struct Shared {
     pub utc: String,
     pub pth: String,
@@ -84,15 +83,6 @@ pub fn read_file_lines(shared_memory: Arc<Mutex<Shared>>) {
     socket
         .set_broadcast(true)
         .expect("Setting broadcast failed.");
-
-    /* Load (or create) the application configuration
-    let _cfg: Shared = match confy::load("rust_gui_nmea_player", None) {
-        Ok(c) => c,
-        Err(e) => {
-            println!("Config error: \"{}\"", e);
-            Shared::default()
-        }
-    };*/
 
     for line in file_lines.split_terminator("\r\n") {
         let fields: Vec<&str> = line.split(',').collect();
@@ -177,14 +167,6 @@ pub fn read_file_lines(shared_memory: Arc<Mutex<Shared>>) {
             let o: f64 = FromStr::from_str(&fields[2]).unwrap_or(0.0);
             shared_memory.lock().unwrap().dpt = d + o;
         }
-
-        /*Save the application configuration
-        match confy::store("rust_gui_nmea_player", None, shared_memory.clone()) {
-            Ok(_) => {}
-            Err(e) => {
-                println!("Error saving config : \"{}\"", e)
-            }
-        };*/
 
         // Stick \r\n onto the end of the line. NMEA0183 expects this but will
         // mostly work even without it (Navionics for example)
