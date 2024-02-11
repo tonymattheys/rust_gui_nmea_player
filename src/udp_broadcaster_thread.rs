@@ -1,4 +1,6 @@
 use chrono::{NaiveDate, Utc};
+use pnet::datalink;
+use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{self, Read};
 use std::net::{SocketAddr, UdpSocket};
@@ -6,9 +8,7 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 
-use pnet::datalink;
-
-#[derive(Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Shared {
     pub utc: String,
     pub pth: String,
@@ -21,6 +21,24 @@ pub struct Shared {
     pub awa: f64,
     pub aws: f64,
     pub dpt: f64,
+}
+// Implement some sane defaults for the shared memory structure
+impl ::std::default::Default for Shared {
+    fn default() -> Self {
+        Self {
+            utc: "0000-00-00 00:00:00".to_string(),
+            pth: "No file loaded".to_string(),
+            ifc: "eth0".to_string(),
+            udp: 10110,
+            lat: 49.1234,
+            lon: -123.4567,
+            cog: 90.0,
+            sog: 5.0,
+            awa: 45.0,
+            aws: 10.0,
+            dpt: 10.0,
+        }
+    }
 }
 
 pub fn read_file_lines(shared_memory: Arc<Mutex<Shared>>) {
@@ -67,6 +85,15 @@ pub fn read_file_lines(shared_memory: Arc<Mutex<Shared>>) {
         .set_broadcast(true)
         .expect("Setting broadcast failed.");
 
+    /* Load (or create) the application configuration
+    let _cfg: Shared = match confy::load("rust_gui_nmea_player", None) {
+        Ok(c) => c,
+        Err(e) => {
+            println!("Config error: \"{}\"", e);
+            Shared::default()
+        }
+    };*/
+
     for line in file_lines.split_terminator("\r\n") {
         let fields: Vec<&str> = line.split(',').collect();
         // $GPZDA,234626.99,22,02,2021,08,00*6A
@@ -104,6 +131,7 @@ pub fn read_file_lines(shared_memory: Arc<Mutex<Shared>>) {
                     sleep_time.num_milliseconds() as u64,
                 ));
             }
+            // println!("I just had a nap for {} ms", sleep_time.num_milliseconds());
         }
         // $GPGGA,020659.21,4937.8509,N,12401.4384,W,2,9,0.83,,M,,M*44
         if fields[0].starts_with("$") && fields[0].len() >= 6 && fields[0][3..6].eq("GGA") {
@@ -149,6 +177,15 @@ pub fn read_file_lines(shared_memory: Arc<Mutex<Shared>>) {
             let o: f64 = FromStr::from_str(&fields[2]).unwrap_or(0.0);
             shared_memory.lock().unwrap().dpt = d + o;
         }
+
+        /*Save the application configuration
+        match confy::store("rust_gui_nmea_player", None, shared_memory.clone()) {
+            Ok(_) => {}
+            Err(e) => {
+                println!("Error saving config : \"{}\"", e)
+            }
+        };*/
+
         socket
             .send_to(line.as_bytes(), &destination)
             .expect("Error sending on socket.");

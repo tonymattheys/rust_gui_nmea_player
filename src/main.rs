@@ -6,25 +6,14 @@ use std::{f64::consts::PI, path::PathBuf};
 use std::sync::{Arc, Mutex};
 
 mod udp_broadcaster_thread;
+use udp_broadcaster_thread::Shared;
 mod where_am_i;
 
 fn main() -> Result<(), eframe::Error> {
 	// Set up shared memory structure to communicate with the broadcaster thread.
-	// We set some sane default values here so that the values shown in the GUI
+	// We set Shared::default() values here so that the values shown in the GUI
 	// make sense right out the gate.
-    let shared_memory = Arc::new(Mutex::new(udp_broadcaster_thread::Shared {
-    	utc: "0000-00-00 00:00:00".to_string(),
-    	pth: "No file loaded".to_string(),
-    	ifc: "".to_string(),
-    	udp: 10110,
-		lat: 49.1234,
-		lon: -123.4567,
-		cog: 0.0,
-		sog: 0.0,
-		awa: 0.0,
-		aws: 0.0,
-		dpt: 0.0,
-    }));
+    let shared_memory = Arc::new(Mutex::new(Shared::default()));
 	// Set up a few options for the GUI
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([800.0, 920.0]),
@@ -96,6 +85,7 @@ fn main() -> Result<(), eframe::Error> {
 		        }
 	            ui.monospace(filename.split_off(splitpoint));
             });
+
 			/*
 			// Display Latitude and longitude text boxes which allow direct 
 			// editing of lat/long values with realtime map update as a bonus
