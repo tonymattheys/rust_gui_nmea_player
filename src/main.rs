@@ -39,12 +39,6 @@ fn main() -> Result<(), eframe::Error> {
 
     eframe::run_simple_native("NMEA Player", options, move |ctx, _frame| {
         egui::CentralPanel::default().show(ctx, |ui| {
-			// Tell the GUI to repaint the screen every frame. This is a bit heavy
-			// but it's the easiest way right now in egui to repaint the screen
-			// and keep the animation of the position running smoothly without 
-			// needing the user to move the mouse or provide someother kind of
-			// input to trigger a screen repaint.
-			ui.ctx().request_repaint();
 
 	        ui.spacing_mut().item_spacing = Vec2 { x: 10.0, y: 10.0 };
 
@@ -165,6 +159,14 @@ fn main() -> Result<(), eframe::Error> {
 			// The pointer is at x=32 and about y=56 (by experiment) which is close enough for this purpose
 			let location: Rect = Rect{min: Pos2 { x: x as f32 - 32.0, y: y as f32 - 56.0 }, max: Pos2 { x: x as f32 + 32.0, y: y as f32 + 8.0 }};
 			ui.put(location, marker);
+
+			// Tell the GUI to repaint the screen every refresh cycle 
+			// This is a bit heavy but it's the easiest way right now in egui 
+			// to repaint the screen and keep the animation of the position 
+			// running smoothly without needing the user to move the mouse or 
+			// provide some other kind of input to trigger a screen repaint.
+			ui.ctx().request_repaint();
+
         });
     })
 }
